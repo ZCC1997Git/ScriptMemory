@@ -115,17 +115,18 @@ BasedOnStyle:  Chromium
 # PenaltyExcessCharacter: 1000000
 # PenaltyReturnTypeOnItsOwnLine: 200
 # PointerAlignment: Left
-# RawStringFormats:
-#   - Language:        Cpp
-#     Delimiters:
-#       - cc
-#       - CC
-#       - cpp
-#       - Cpp
-#       - CPP
-#       - 'c++'
-#       - 'C++'
-#       - hpp
+RawStringFormats:
+  - Language:        Cpp
+    Delimiters:
+      - cc
+      - CC
+      - cpp
+      - Cpp
+      - CPP
+      - cu
+      - 'c++'
+      - 'C++'
+      - hpp
 #     CanonicalDelimiter: ''
 #     BasedOnStyle:    google
 #   - Language:        TextProto
