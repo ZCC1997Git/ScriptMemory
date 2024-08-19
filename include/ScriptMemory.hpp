@@ -2,11 +2,14 @@
 #include <cuda_runtime.h>
 #include <cstddef>
 
+inline constexpr int MaxSharedMemory = 49152;
+inline constexpr int MaxCacheNum = 6;
+
 /*struc for cache infor*/
 struct CacheInfo {
   int global_addr = -1;
-  int offset;
-  int size;
+  void* cache_ptr = nullptr;
+  int size; /*in byte*/
   int flag = -1;
 };
 
@@ -22,7 +25,7 @@ class ScriptMemory {
   void* data = nullptr; /*the pointer that binded to a specific script memory*/
   int num_array_cache =
       0; /*the number of data in global memory cached in script memory*/
-  CacheInfo array_cache[6];
+  CacheInfo array_cache[MaxCacheNum];
 
   __device__ ScriptMemory() {
     extern __shared__ char shared_memory[];
@@ -47,11 +50,6 @@ class ScriptMemory {
     return instance[0];
   }
 
-  template <class T>
-  __device__ T* get_data() {
-    return static_cast<T*>(ScriptMemory::data);
-  }
-
   __device__ ~ScriptMemory() { ; }
 
   /*
@@ -60,69 +58,84 @@ class ScriptMemory {
    * @param: size: the size in the cache memory
    * @return: the pointer to the cache memory
    */
-  template <class T, bool IsAligned = false>
+  template <class T>
   __device__ T* MallocCache(T* global_data, int size_cache) {
-    /*if IsAligned is true, the cache should be aligned with 32 in CUDA*/
-    if constexpr (IsAligned) {
-      size_cache = (size_cache + 31) & ~31;
-    }
-
+    int addr_low =
+        static_cast<int>(reinterpret_cast<uintptr_t>(global_data) & 0xFFFF);
     /*if globda_data has been cached return T* directly*/
     for (int i = 0; i < num_array_cache; i++) {
-      if (array_cache[i].global_addr == (int)global_data) {
-        return static_cast<T*>((char*)data + array_cache[i].offset);
+      if (array_cache[i].global_addr == addr_low) {
+        return reinterpret_cast<T*>(array_cache[i].cache_ptr);
       }
     }
 
     /*if the cache memory is not enough, return nullptr*/
-    if (size + size_cache * sizeof(T) > 49152) {
+    if (size + size_cache * sizeof(T) > MaxSharedMemory) {
       return nullptr;
     }
 
-    if (num_array_cache >= 6) {
+    if (num_array_cache >= MaxCacheNum) {
       return nullptr;
     }
 
     /*allocate the cache memory*/
-    T* cache_data = static_cast<T*>((char*)data + size);
-    array_cache[num_array_cache].global_addr = (int)global_data;
-    array_cache[num_array_cache].offset = size;
+    T* cache_data = reinterpret_cast<T*>((char*)data + size);
+    array_cache[num_array_cache].global_addr = addr_low;
+    array_cache[num_array_cache].cache_ptr = cache_data;
     array_cache[num_array_cache].size = size_cache * sizeof(T);
     num_array_cache++;
     size += size_cache * sizeof(T);
+    return cache_data;
   }
 
-  template <class T, bool IsAligned = false>
+  /*
+   * @brief: allocate a cache memory that decoupled with global data
+   * @param: size: the size in the cache memory
+   * @return: the pointer to the cache memory
+   */
+  template <class T>
   __device__ T* MallocCache(int size_cache) {
-    /*if IsAligned is true, the cache should be aligned with 32 in CUDA*/
-    if constexpr (IsAligned) {
-      size_cache = (size_cache + 31) & ~31;
-    }
-
     /*if globda_data has been cached return T* directly*/
     for (int i = 0; i < num_array_cache; i++) {
       if (array_cache[i].global_addr == 0) {
-        return reinterpret_cast<T*>(static_cast<char*>(data) +
-                                    array_cache[i].offset);
+        return reinterpret_cast<T*>(array_cache[i].cache_ptr);
       }
     }
 
     /*if the cache memory is not enough, return nullptr*/
-    if (size + size_cache * sizeof(T) > 49152) {
+    if (size + size_cache * sizeof(T) > MaxSharedMemory) {
       return nullptr;
     }
 
-    if (num_array_cache >= 6) {
+    if (num_array_cache >= MaxCacheNum) {
       return nullptr;
     }
 
     /*allocate the cache memory*/
     T* cache_data = reinterpret_cast<T*>((char*)data + size);
     array_cache[num_array_cache].global_addr = (int)0;
-    array_cache[num_array_cache].offset = size;
+    array_cache[num_array_cache].cache_ptr = cache_data;
     array_cache[num_array_cache].size = size_cache * sizeof(T);
     num_array_cache++;
     size += size_cache * sizeof(T);
     return cache_data;
   }
+
+  template <class T>
+  __device__ void CacheWrite(T* cache_ptr, auto index, auto data, int flag) {
+    int i = 0;
+    for (; i < num_array_cache; i++) {
+      if (array_cache[i].cache_ptr == cache_ptr) {
+        if (array_cache[i].flag == flag) {
+          return;
+        } else {
+          break;
+        }
+      }
+    }
+    cache_ptr[index] = data;
+    array_cache[i].flag = flag;
+  }
+
+  __device__ void CacheSync() { __syncthreads(); }
 };
