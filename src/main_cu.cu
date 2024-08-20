@@ -2,21 +2,19 @@
 #include <ScriptMemory.hpp>
 #include <iostream>
 
-__device__ void wirte_sm(int* A, ScriptMemory& sm) {
-  auto ptr = sm.MallocCache<int>(A, 32);
-  sm.CacheWrite(ptr, threadIdx.x, threadIdx.x, 0);
-}
+// __device__ void wirte_sm(int* A, ScriptMemory& sm) {
+//   auto ptr = sm.MallocCache<int>(A, 32);
+//   sm.CacheReadFromGlobal(ptr, threadIdx.x, threadIdx.x, 0);
+// }
 
 __global__ void kernel(int* A) {
-  auto sm = ScriptMemory::MallocInstance();
+  auto sm = ScriptMemory<DEVICE::CUDA>::MallocInstance();
   auto tid = blockDim.x * blockIdx.x + threadIdx.x;
-  A[tid] = threadIdx.x;
-  auto ptr = sm.MallocCache<int>(A, 32);
-  sm.CacheWrite(ptr, threadIdx.x, threadIdx.x, 0);
-  sm.CacheSync();
-  wirte_sm(A, sm);
+  A[tid] = threadIdx.x % 32;
+  auto ptr = sm.MallocCache<int>(A, 64);
+  sm.CacheReadFromGlobalSync(ptr, threadIdx.x, A, tid, 1, 0);
   int sum = 0;
-  for (int i = 0; i < 32; i++) {
+  for (int i = 0; i < 64; i++) {
     sum += ptr[i];
   }
   A[tid] = sum;
@@ -24,11 +22,11 @@ __global__ void kernel(int* A) {
 
 int main() {
   int* d_A;
-  cudaMalloc(&d_A, 1024 * sizeof(int));
-  cudaMemset(d_A, 0, 1024 * sizeof(int));
+  cudaMalloc(&d_A, 4096 * sizeof(int));
+  cudaMemset(d_A, 0, 4096 * sizeof(int));
 
-  dim3 grid(32, 1, 1);
-  dim3 block(32, 1, 1);
+  dim3 grid(64, 1, 1);
+  dim3 block(64, 1, 1);
 
   cudaEvent_t start, stop;
   cudaEventCreate(&start);
@@ -41,12 +39,12 @@ int main() {
   cudaEventElapsedTime(&milliseconds, start, stop);
   std::cout << "Time: " << milliseconds << "ms" << std::endl;
   cudaDeviceSynchronize();
-  int* h_A = new int[1024];
-  cudaMemcpy(h_A, d_A, 1024 * sizeof(int), cudaMemcpyDeviceToHost);
+  int* h_A = new int[4096];
+  cudaMemcpy(h_A, d_A, 4096 * sizeof(int), cudaMemcpyDeviceToHost);
   /*check*/
   bool flag = true;
-  for (int i = 0; i < 1024; i++) {
-    if (h_A[i] != 496) {
+  for (int i = 0; i < 4096; i++) {
+    if (h_A[i] != 496 * 2) {
       flag = false;
       std::cout << "Error: " << i << " " << h_A[i] << std::endl;
     }

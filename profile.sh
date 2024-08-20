@@ -1,0 +1,1 @@
+ncu --set full --target-processes all --export out.ncu-rep  ./ScriptMemory
