@@ -15,7 +15,7 @@ __global__ void kernel_ref(int* A) {
   A[tid] = sum;
 }
 
-__device__ ScriptMemory<DEVICE::CUDA> sm_global[64];
+inline __device__ ScriptMemory<DEVICE::CUDA> sm_global[64];
 __device__ auto& MallocInstance() {
   auto& sm = sm_global[blockIdx.x];
   extern __shared__ char shared_memory[];

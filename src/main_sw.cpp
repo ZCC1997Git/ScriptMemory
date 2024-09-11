@@ -4,13 +4,13 @@
 #include <iostream>
 
 #if not defined(__sw_host__)
-__thread ScriptMemory<DEVICE::SW> SM;
+inline __thread ScriptMemory<DEVICE::SW> SM;
 __attribute((slave)) auto& MallocInstance() {
   SM.get_data() = static_cast<char*>(ldm_malloc(MaxLDMMemory));
   return SM;
 }
 #else
-ScriptMemory<DEVICE::SW> SM;
+inline ScriptMemory<DEVICE::SW> SM;
 auto& MallocInstance() {
   return SM;
 }
@@ -33,9 +33,8 @@ __attribute((kernel)) void test1(int* a) {
 __attribute((kernel)) void test2(int* a) {
   auto tid = CRTS_tid;
   auto sm = MallocInstance();
-  auto aa = a + tid * 1024;
 
-  auto b = sm.MallocCache(aa, 1024 * sizeof(int));
+  auto b = sm.MallocCache(a, 1024 * sizeof(int));
   sm.CacheReadFromGlobal(b, 0, a, tid * 1024, 1024, 0);
   sm.CacheSync();
   for (int i = 0; i < 1024; i++) {
