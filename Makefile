@@ -21,7 +21,7 @@ OK_COLOR		=\033[32;01m
 ALL:ScriptMemory_CUDA ScriptMemory_CPU ScriptMemory_SW
 
 ScriptMemory_SW :./obj/main_sw.o $(head)
-	$(swuc) -o $@ $< -mhybrid
+	$(swuc) -o $@ $< -mhybrid -D__SWCC__ -faddress_align=64 -I $(HeadRoot)
 	@printf "$(OK_COLOR)Compiling Is Successful!\nExecutable File: ScriptMemory_SW $(NO_COLOR)\n"
 
 ScriptMemory_CUDA :./obj/main_cu.cu.o $(head)
@@ -39,7 +39,7 @@ $(ObjDir)/%.cu.o:$(SrcDir)/%.cu $(head)
 	$(nvcc) -c $(nvflags) $< -o $@ -I $(HeadRoot)
 
 $(ObjDir)/main_sw.o:$(SrcDir)/main_sw.cpp $(head)
-	$(swuc) -c -O2 -std=c++17 -mhybrid-coding -faddress_align=64 $< -o $@ -I $(HeadRoot)
+	$(swuc) -c -O2 -std=c++17 -mhybrid-coding -faddress_align=64 $< -o $@ -I $(HeadRoot) -D__SWCC__
 
 .PHONY:run_cuda
 run_cuda:ScriptMemory_CUDA

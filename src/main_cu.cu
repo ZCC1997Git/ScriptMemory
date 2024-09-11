@@ -2,17 +2,12 @@
 #include <ScriptMemory.hpp>
 #include <iostream>
 
-// __device__ void wirte_sm(int* A, ScriptMemory& sm) {
-//   auto ptr = sm.MallocCache<int>(A, 32);
-//   sm.CacheReadFromGlobal(ptr, threadIdx.x, threadIdx.x, 0);
-// }
-
-__global__ void kernel(int* A) {
-  auto sm = ScriptMemory<DEVICE::CUDA>::MallocInstance();
+__global__ void kernel_ref(int* A) {
   auto tid = blockDim.x * blockIdx.x + threadIdx.x;
   A[tid] = threadIdx.x % 32;
-  auto ptr = sm.MallocCache<int>(A, 64);
-  sm.CacheReadFromGlobalSync(ptr, threadIdx.x, A, tid, 1, 0);
+  __shared__ int ptr[64];
+  ptr[threadIdx.x] = A[tid];
+  __syncthreads();
   int sum = 0;
   for (int i = 0; i < 64; i++) {
     sum += ptr[i];
@@ -20,30 +15,86 @@ __global__ void kernel(int* A) {
   A[tid] = sum;
 }
 
+__device__ ScriptMemory<DEVICE::CUDA> sm_global[64];
+__device__ auto& MallocInstance() {
+  auto& sm = sm_global[blockIdx.x];
+  extern __shared__ char shared_memory[];
+  if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
+    sm.get_data() = shared_memory;
+  }
+  return sm;
+}
+
+__global__ void kernel(int* A) {
+  auto& sm = MallocInstance();
+  auto tid = blockDim.x * blockIdx.x + threadIdx.x;
+  A[tid] = threadIdx.x % 32;
+  auto ptr = sm.MallocCache<int>(A, 64);
+  sm.CacheReadFromGlobal(ptr, threadIdx.x, A, tid, 1, 0);
+  sm.CacheSync();
+
+  ptr[threadIdx.x] = A[tid];
+  int sum = 0;
+  for (int i = 0; i < 64; i++) {
+    sum += ptr[i];
+  }
+  A[tid] = sum;
+  if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
+    sm.clear();
+  }
+}
+
+void ResultCheck(int* d_A);
+
 int main() {
   int* d_A;
-  cudaMalloc(&d_A, 4096 * sizeof(int));
-  cudaMemset(d_A, 0, 4096 * sizeof(int));
+  cudaMalloc(&d_A, 4096 * 2 * sizeof(int));
+  cudaMemset(d_A, 0, 4096 * 2 * sizeof(int));
 
-  dim3 grid(64, 1, 1);
+  dim3 grid(128, 1, 1);
   dim3 block(64, 1, 1);
 
+  kernel_ref<<<grid, block>>>(d_A);
+
+  cudaMemset(d_A, 0, 4096 * 2 * sizeof(int));
+  cudaEvent_t start_ref, stop_ref;
+  cudaEventCreate(&start_ref);
+  cudaEventCreate(&stop_ref);
+  cudaEventRecord(start_ref);
+  for (int i = 0; i < 10000; i++)
+    kernel_ref<<<grid, block>>>(d_A);
+  cudaEventRecord(stop_ref);
+  cudaEventSynchronize(stop_ref);
+  float milliseconds_ref = 0;
+  cudaEventElapsedTime(&milliseconds_ref, start_ref, stop_ref);
+  std::cout << "Time_ref: " << milliseconds_ref << "ms" << std::endl;
+  /*check*/
+  ResultCheck(d_A);
+
+  kernel<<<grid, block, 128 * 8>>>(d_A);
+  cudaMemset(d_A, 0, 4096 * 2 * sizeof(int));
   cudaEvent_t start, stop;
   cudaEventCreate(&start);
   cudaEventCreate(&stop);
   cudaEventRecord(start);
-  kernel<<<grid, block, 8 * 1024>>>(d_A);
+  for (int i = 0; i < 10000; i++)
+    kernel<<<grid, block, 128 * 8>>>(d_A);
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
   float milliseconds = 0;
   cudaEventElapsedTime(&milliseconds, start, stop);
   std::cout << "Time: " << milliseconds << "ms" << std::endl;
-  cudaDeviceSynchronize();
-  int* h_A = new int[4096];
-  cudaMemcpy(h_A, d_A, 4096 * sizeof(int), cudaMemcpyDeviceToHost);
+  /*check*/
+  ResultCheck(d_A);
+  return 0;
+}
+
+void ResultCheck(int* d_A) {
+  int* h_A = new int[4096 * 2];
+  cudaMemcpy(h_A, d_A, 4096 * 2 * sizeof(int), cudaMemcpyDeviceToHost);
   /*check*/
   bool flag = true;
-  for (int i = 0; i < 4096; i++) {
+  for (int i = 0; i < 4096 * 2; i++) {
     if (h_A[i] != 496 * 2) {
       flag = false;
       std::cout << "Error: " << i << " " << h_A[i] << std::endl;
@@ -52,5 +103,4 @@ int main() {
   if (flag) {
     std::cout << "Success" << std::endl;
   }
-  return 0;
 }

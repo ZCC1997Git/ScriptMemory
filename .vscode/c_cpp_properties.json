@@ -4,8 +4,8 @@
             "name": "Linux",
             "includePath": [
                 "${workspaceFolder}/**",
-                "${workspaceFolder}/include/**"
-
+                "${workspaceFolder}/include/**",
+                "/opt/swgcc710-tools-SEA-1432/shared_include/**"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/gcc",
