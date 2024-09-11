@@ -58,11 +58,11 @@ run_sw:ScriptMemory_SW
 
 .PHONY:clean	 
 clean:
-	-rm $(object) ScriptMemory_CUDA ScriptMemory_CPU
+	-rm $(object) ScriptMemory_CUDA ScriptMemory_CPU ScriptMemory_SW
 
 .PHONY:clean_all	 
 clean_all:
-	-rm $(object) ScriptMemory_CUDA ScriptMemory_CPU ./output/*
+	-rm $(object) ScriptMemory_CUDA ScriptMemory_CPU  ScriptMemory_SW ./output/*
 
 .PHONY:plot
 plot:

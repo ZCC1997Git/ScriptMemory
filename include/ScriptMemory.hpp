@@ -20,7 +20,6 @@ inline constexpr int MaxCacheNum = 6;
 
 /*struc for cache infor*/
 struct CacheInfo {
-  int global_addr = -1; /*the address of low 32 bit*/
   int flag =
       std::numeric_limits<int>::min(); /*the flag is the same, means that the
                                           data has been in the cache*/
@@ -69,8 +68,6 @@ class ScriptMemory<DEVICE::CUDA> {
    */
   template <class T>
   __device__ T* MallocCache(T* global_data, int size_cache) {
-    // int addr_low =
-    //     static_cast<int>(reinterpret_cast<uintptr_t>(global_data) & 0xFFFF);
     /*if globda_data has been cached return T* directly*/
     for (int i = 0; i < num_array_cache; i++) {
       if (array_cache[i].global_ptr == global_data &&
@@ -91,11 +88,11 @@ class ScriptMemory<DEVICE::CUDA> {
     /*allocate the cache memory*/
     T* cache_data = reinterpret_cast<T*>((char*)data + size);
     if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
-      // array_cache[num_array_cache].global_addr = addr_low;
+      array_cache[num_array_cache].global_ptr = global_data;
       array_cache[num_array_cache].usable_size = size_cache;
       array_cache[num_array_cache].cache_ptr = cache_data;
       /*don't need in CUDA*/
-      array_cache[num_array_cache].global_ptr = global_data;
+      // array_cache[num_array_cache].global_addr = addr_low;
       // array_cache[num_array_cache].used_size = 0;
       // array_cache[num_array_cache].flag = std::numeric_limits<int>::min();
       num_array_cache++;
@@ -113,7 +110,7 @@ class ScriptMemory<DEVICE::CUDA> {
   __device__ T* MallocCache(int size_cache) {
     /*if globda_data has been cached return T* directly*/
     for (int i = 0; i < num_array_cache; i++) {
-      if (array_cache[i].global_addr == 0 &&
+      if (array_cache[i].global_ptr == nullptr &&
           array_cache[i].usable_size <= size_cache) {
         return reinterpret_cast<T*>(array_cache[i].cache_ptr);
       }
@@ -131,7 +128,7 @@ class ScriptMemory<DEVICE::CUDA> {
     /*allocate the cache memory*/
     T* cache_data = reinterpret_cast<T*>((char*)data + size);
     if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
-      array_cache[num_array_cache].global_addr = (int)0;
+      array_cache[num_array_cache].global_ptr = nullptr;
       array_cache[num_array_cache].usable_size = size_cache;
       array_cache[num_array_cache].cache_ptr = cache_data;
       /*don't need in CUDA*/
@@ -174,8 +171,6 @@ class ScriptMemory<DEVICE::CUDA> {
       }
     }
     // array_cache[i].flag = flag;
-    // array_cache[i].used_size = num_element * sizeof(T);
-    // array_cache[i].global_ptr = global_addr;
     for (int j = 0; j < num_element; j++) {
       cache_ptr[index_cache + j] = global_addr[index_global + j];
     }
@@ -201,157 +196,150 @@ class ScriptMemory<DEVICE::CUDA> {
   }
 };
 #endif
-// /*
-//  * @brief: the specialization of ScriptMemory for CPU
-//  */
-// template <>
-// class ScriptMemory<DEVICE::CPU> {
-//  private:
-//   int size = 0;              /*the memory size in byte*/
-//   char data[MaxCacheMemory]; /*the array work as a script memory*/
-//   int num_array_cache =
-//       0; /*the number of data in global memory cached in script memory*/
-//   CacheInfo array_cache[MaxCacheNum];
-//   ScriptMemory() = default;
 
-//  public:
-//   /*allocate the instance in heap*/
-//   static auto MallocInstance() { return ScriptMemory(); }
+/*
+ * @brief: the specialization of ScriptMemory for CPU
+ */
+template <>
+class ScriptMemory<DEVICE::CPU> {
+ private:
+  int size = 0;              /*the memory size in byte*/
+  char data[MaxCacheMemory]; /*the array work as a script memory*/
+  int num_array_cache =
+      0; /*the number of data in global memory cached in script memory*/
+  CacheInfo array_cache[MaxCacheNum];
+  ScriptMemory() = default;
 
-//   ~ScriptMemory() = default;
+ public:
+  /*allocate the instance in heap*/
+  static auto MallocInstance() { return ScriptMemory(); }
 
-//   /*
-//    * @brief: allocate a cache memory for the global data
-//    * @param: global_data: the pointer to the global data
-//    * @param: size: the size in the cache memory
-//    * @return: the pointer to the cache memory
-//    */
-//   template <class T>
-//   T* MallocCache(T* global_data, int size_cache) {
-//     int addr_low =
-//         static_cast<int>(reinterpret_cast<uintptr_t>(global_data) & 0xFFFF);
-//     /*if globda_data has been cached return T* directly*/
-//     for (int i = 0; i < num_array_cache; i++) {
-//       if (array_cache[i].global_addr == addr_low) {
-//         return reinterpret_cast<T*>(array_cache[i].cache_ptr);
-//       }
-//     }
+  ~ScriptMemory() = default;
 
-//     /*if the cache memory is not enough, return nullptr*/
-//     if (size + size_cache * sizeof(T) > MaxCacheMemory) {
-//       return nullptr;
-//     }
+  /*
+   * @brief: allocate a cache memory for the global data
+   * @param: global_data: the pointer to the global data
+   * @param: size: the size in the cache memory
+   * @return: the pointer to the cache memory
+   */
+  template <class T>
+  T* MallocCache(T* global_data, int size_cache) {
+    /*if globda_data has been cached return T* directly*/
+    for (int i = 0; i < num_array_cache; i++) {
+      if (array_cache[i].global_ptr == global_data &&
+          array_cache[i].usable_size == size_cache) {
+        return reinterpret_cast<T*>(array_cache[i].cache_ptr);
+      }
+    }
 
-//     if (num_array_cache >= MaxCacheNum) {
-//       return nullptr;
-//     }
+    /*if the cache memory is not enough, return nullptr*/
+    if (size + size_cache > MaxCacheMemory) {
+      return nullptr;
+    }
 
-//     /*allocate the cache memory*/
-//     T* cache_data = reinterpret_cast<T*>(data + size);
-//     array_cache[num_array_cache].global_addr = addr_low;
-//     array_cache[num_array_cache].cache_ptr = cache_data;
-//     array_cache[num_array_cache].size = size_cache * sizeof(T);
-//     num_array_cache++;
-//     size += size_cache * sizeof(T);
-//     return cache_data;
-//   }
+    if (num_array_cache >= MaxCacheNum) {
+      return nullptr;
+    }
 
-//   /*
-//    * @brief: allocate a cache memory that decoupled with global data
-//    * @param: size: the size in the cache memory
-//    * @return: the pointer to the cache memory
-//    */
-//   template <class T>
-//   T* MallocCache(int size_cache) {
-//     /*if globda_data has been cached return T* directly*/
-//     for (int i = 0; i < num_array_cache; i++) {
-//       if (array_cache[i].global_addr == 0) {
-//         return reinterpret_cast<T*>(array_cache[i].cache_ptr);
-//       }
-//     }
+    /*allocate the cache memory*/
+    T* cache_data = reinterpret_cast<T*>(data + size);
+    array_cache[num_array_cache].cache_ptr = cache_data;
+    array_cache[num_array_cache].usable_size = size_cache;
+    array_cache[num_array_cache].used_size = 0;
+    array_cache[num_array_cache].global_ptr = global_data;
+    array_cache[num_array_cache].flag = std::numeric_limits<int>::min();
+    num_array_cache++;
+    size += size_cache * sizeof(T);
+    return cache_data;
+  }
 
-//     /*if the cache memory is not enough, return nullptr*/
-//     if (size + size_cache * sizeof(T) > MaxCacheMemory) {
-//       return nullptr;
-//     }
+  /*
+   * @brief: allocate a cache memory that decoupled with global data
+   * @param: size: the size in the cache memory
+   * @return: the pointer to the cache memory
+   */
+  template <class T>
+  T* MallocCache(int size_cache) {
+    /*if globda_data has been cached return T* directly*/
+    for (int i = 0; i < num_array_cache; i++) {
+      if (array_cache[i].global_ptr == nullptr &&
+          array_cache[i].usable_size <= size_cache) {
+        return reinterpret_cast<T*>(array_cache[i].cache_ptr);
+      }
+    }
 
-//     if (num_array_cache >= MaxCacheNum) {
-//       return nullptr;
-//     }
+    /*if the cache memory is not enough, return nullptr*/
+    if (size + size_cache > MaxCacheMemory) {
+      return nullptr;
+    }
 
-//     /*allocate the cache memory*/
-//     T* cache_data = reinterpret_cast<T*>(data + size);
-//     array_cache[num_array_cache].global_addr = 0;
-//     array_cache[num_array_cache].cache_ptr = cache_data;
-//     array_cache[num_array_cache].size = size_cache * sizeof(T);
-//     num_array_cache++;
-//     size += size_cache * sizeof(T);
-//     return cache_data;
-//   }
+    if (num_array_cache >= MaxCacheNum) {
+      return nullptr;
+    }
 
-//   void CacheSync() { ; }
-//   /*
-//    * @brief: read data from global memory to cache memory
-//    * @param: cache_ptr: the pointer to the cache memory
-//    * @param: index_cache: the index in the cache memory
-//    * @param: global_addr: the pointer to the global memory
-//    * @param: index_global: the index in the global memory
-//    * @param: num_element: the number of element to read
-//    * @param: flag: the flag to indicate the data is read or write
-//    */
-//   template <class T>
-//   void CacheReadFromGlobal(T* cache_ptr,
-//                            int index_cache,
-//                            T* global_addr,
-//                            int index_global,
-//                            int num_element,
-//                            int flag) {
-//     int i = 0;
-//     for (; i < num_array_cache; i++) {
-//       if (array_cache[i].cache_ptr == cache_ptr) {
-//         if (array_cache[i].flag == flag) {
-//           return;
-//         } else {
-//           break;
-//         }
-//       }
-//     }
-//     array_cache[i].flag = flag;
-//     for (int j = 0; j < num_element; j++) {
-//       cache_ptr[index_cache + j] = global_addr[index_global + j];
-//     }
-//   }
+    /*allocate the cache memory*/
+    T* cache_data = reinterpret_cast<T*>(data + size);
+    array_cache[num_array_cache].cache_ptr = cache_data;
+    array_cache[num_array_cache].usable_size = size_cache;
+    array_cache[num_array_cache].used_size = 0;
+    array_cache[num_array_cache].global_ptr = nullptr;
+    num_array_cache++;
+    size += size_cache * sizeof(T);
+    return cache_data;
+  }
 
-//   template <class T>
-//   void CacheReadFromGlobalSync(T* cache_ptr,
-//                                int index_cache,
-//                                T* global_addr,
-//                                int index_global,
-//                                int num_element,
-//                                int flag) {
-//     CacheReadFromGlobal(cache_ptr, index_cache, global_addr, index_global,
-//                         num_element, flag);
-//   }
+  void CacheSync() { ; }
+  /*
+   * @brief: read data from global memory to cache memory
+   * @param: cache_ptr: the pointer to the cache memory
+   * @param: index_cache: the index in the cache memory
+   * @param: global_addr: the pointer to the global memory
+   * @param: index_global: the index in the global memory
+   * @param: num_element: the number of element to read
+   * @param: flag: the flag to indicate the data is read or write
+   */
+  template <class T>
+  void CacheReadFromGlobal(T* cache_ptr,
+                           int index_cache,
+                           T* global_addr,
+                           int index_global,
+                           int num_element,
+                           int flag) {
+    int i = 0;
+    for (; i < num_array_cache; i++) {
+      if (array_cache[i].cache_ptr == cache_ptr) {
+        if (array_cache[i].flag == flag) {
+          return;
+        } else {
+          break;
+        }
+      }
+    }
+    array_cache[i].flag = flag;
+    for (int j = 0; j < num_element; j++) {
+      cache_ptr[index_cache + j] = global_addr[index_global + j];
+    }
+  }
 
-//   /*
-//    * @brief: write data from cache memory to global memory
-//    * @param: global_ptr: the pointer to the global memory
-//    * @param: index_global: the index in the global memory
-//    * @param: cache_ptr: the pointer to the cache memory
-//    * @param: index_cache: the index in the cache memory
-//    * @param: num_element: the number of element to write
-//    */
-//   template <class T>
-//   void CacheWriteToGlobal(T* global_ptr,
-//                           int index_global,
-//                           T* cache_ptr,
-//                           int index_cache,
-//                           int num_element) {
-//     for (int j = 0; j < num_element; j++) {
-//       global_ptr[index_global + j] = cache_ptr[index_cache + j];
-//     }
-//   }
-// };
+  /*
+   * @brief: write data from cache memory to global memory
+   * @param: global_ptr: the pointer to the global memory
+   * @param: index_global: the index in the global memory
+   * @param: cache_ptr: the pointer to the cache memory
+   * @param: index_cache: the index in the cache memory
+   * @param: num_element: the number of element to write
+   */
+  template <class T>
+  void CacheWriteToGlobal(T* global_ptr,
+                          int index_global,
+                          T* cache_ptr,
+                          int index_cache,
+                          int num_element) {
+    for (int j = 0; j < num_element; j++) {
+      global_ptr[index_global + j] = cache_ptr[index_cache + j];
+    }
+  }
+};
 
 #ifdef __SWCC__
 /*
@@ -378,12 +366,9 @@ class ScriptMemory<DEVICE::SW> {
    */
   template <class T>
   T* MallocCache(T* global_data, int size_cache) {
-    int addr_low =
-        static_cast<int>(reinterpret_cast<uintptr_t>(global_data) & 0xFFFF);
-
     /*if globda_data has been cached return T* directly*/
     for (int i = 0; i < num_array_cache; i++) {
-      if (array_cache[i].global_addr == addr_low &&
+      if (array_cache[i].global_ptr == global_data &&
           array_cache[i].usable_size == size_cache) {
         return reinterpret_cast<T*>(array_cache[i].cache_ptr);
       }
@@ -400,7 +385,6 @@ class ScriptMemory<DEVICE::SW> {
 
     /*allocate the cache memory*/
     T* cache_data = reinterpret_cast<T*>(data + size);
-    array_cache[num_array_cache].global_addr = addr_low;
     array_cache[num_array_cache].usable_size = size_cache;
     array_cache[num_array_cache].used_size = 0;
     array_cache[num_array_cache].cache_ptr = cache_data;
@@ -422,7 +406,7 @@ class ScriptMemory<DEVICE::SW> {
   T* MallocCache(int size_cache) {
     /*if globda_data has been cached return T* directly*/
     for (int i = 0; i < num_array_cache; i++) {
-      if (array_cache[i].global_addr == 0 &&
+      if (array_cache[i].global_ptr == nullptr &&
           array_cache[i].usable_size <= size_cache) {
         return reinterpret_cast<T*>(array_cache[i].cache_ptr);
       }
@@ -439,7 +423,6 @@ class ScriptMemory<DEVICE::SW> {
 
     /*allocate the cache memory*/
     T* cache_data = reinterpret_cast<T*>(data + size);
-    array_cache[num_array_cache].global_addr = 0;
     array_cache[num_array_cache].usable_size = size_cache;
     array_cache[num_array_cache].used_size = 0;
     array_cache[num_array_cache].cache_ptr = cache_data;
