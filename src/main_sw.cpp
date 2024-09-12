@@ -3,19 +3,6 @@
 #include <chrono>
 #include <iostream>
 
-#if not defined(__sw_host__)
-inline __thread ScriptMemory<DEVICE::SW> SM;
-__attribute((slave)) auto& MallocInstance() {
-  SM.get_data() = static_cast<char*>(ldm_malloc(MaxLDMMemory));
-  return SM;
-}
-#else
-inline ScriptMemory<DEVICE::SW> SM;
-auto& MallocInstance() {
-  return SM;
-}
-#endif
-
 __attribute((kernel)) void test1(int* a) {
   // int b[1024];
   int* b = (int*)ldm_malloc(1024 * sizeof(int));

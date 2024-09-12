@@ -7,7 +7,7 @@ int main() {
 
 #pragma omp parallel
   {
-    auto cache = ScriptMemory<DEVICE::CPU>::MallocInstance();
+    auto cache = MallocInstance();
     auto ptr = cache.MallocCache(a, 1);
 #pragma omp for
     for (int i = 0; i < 4096; i++) {

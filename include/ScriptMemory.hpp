@@ -8,6 +8,17 @@
 #include <iostream>
 #include <limits>
 #include <utility>
+#if not defined(__SWCC__) && not defined(__CUDACC__)
+#include <omp.h>
+#endif
+
+/*the device support*/
+enum class DEVICE { CPU, CUDA, SW };
+
+/*the max number of block in CUDA*/
+inline constexpr int MaxBlockNum = 1024;
+/*the max number of thread in CPU*/
+inline constexpr int MaxThreadNum = 32;
 
 /*the max size of shared memory in CUDA (size in byte)*/
 inline constexpr int MaxSharedMemory = 49152;
@@ -28,9 +39,6 @@ struct CacheInfo {
   void* global_ptr = nullptr;
   void* cache_ptr = nullptr;
 };
-
-/*the device support*/
-enum class DEVICE { CPU, CUDA, SW };
 
 /**
  * @file ScriptMemory.hpp
@@ -208,14 +216,8 @@ class ScriptMemory<DEVICE::CPU> {
   int num_array_cache =
       0; /*the number of data in global memory cached in script memory*/
   CacheInfo array_cache[MaxCacheNum];
-  ScriptMemory() = default;
 
  public:
-  /*allocate the instance in heap*/
-  static auto MallocInstance() { return ScriptMemory(); }
-
-  ~ScriptMemory() = default;
-
   /*
    * @brief: allocate a cache memory for the global data
    * @param: global_data: the pointer to the global data
@@ -516,3 +518,40 @@ class ScriptMemory<DEVICE::SW> {
 };
 #endif
 #pragma swuc pop
+
+/**
+ * @brief: the function to get the instance of ScriptMemory
+ */
+#ifdef __CUDACC__
+inline __device__ ScriptMemory<DEVICE::CUDA> SM[MaxBlockNum];
+__device__ auto& MallocInstance() {
+  auto block_id =
+      blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.x * gridDim.y;
+  auto& sm = SM[block_id];
+  extern __shared__ char shared_memory[];
+  if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
+    sm.get_data() = shared_memory;
+  }
+  __syncthreads();
+  return sm;
+}
+#elif defined(__SWCC__)
+#if not defined(__sw_host__)
+inline __thread ScriptMemory<DEVICE::SW> SM;
+__attribute((slave)) auto& MallocInstance() {
+  SM.get_data() = static_cast<char*>(ldm_malloc(MaxLDMMemory));
+  return SM;
+}
+#else
+inline ScriptMemory<DEVICE::SW> SM;
+auto& MallocInstance() {
+  return SM;
+}
+#endif
+#else
+inline ScriptMemory<DEVICE::CPU> SM[MaxThreadNum];
+auto& MallocInstance() {
+  auto tid = omp_get_thread_num();
+  return SM[tid];
+}
+#endif

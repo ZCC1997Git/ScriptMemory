@@ -15,16 +15,6 @@ __global__ void kernel_ref(int* A) {
   A[tid] = sum;
 }
 
-inline __device__ ScriptMemory<DEVICE::CUDA> sm_global[64];
-__device__ auto& MallocInstance() {
-  auto& sm = sm_global[blockIdx.x];
-  extern __shared__ char shared_memory[];
-  if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) {
-    sm.get_data() = shared_memory;
-  }
-  return sm;
-}
-
 __global__ void kernel(int* A) {
   auto& sm = MallocInstance();
   auto tid = blockDim.x * blockIdx.x + threadIdx.x;
